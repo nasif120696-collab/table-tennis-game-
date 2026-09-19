@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Table Tennis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Condensed:wght@600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #DDE7E5;
+    --ink: #12302C;
+    --muted: #4B6863;
+    --panel: #F1F6F5;
+    --line: #B7C8C5;
+    --accent: #1B4F8F;
+    --accent-ink: #FFFFFF;
+    --ball: #FF8A1F;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F2422; --ink: #E3EFEC; --muted: #93AEA9;
+      --panel: #173330; --line: #2A4A46; --accent: #3D7FD1;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F2422; --ink: #E3EFEC; --muted: #93AEA9;
+    --panel: #173330; --line: #2A4A46; --accent: #3D7FD1;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Barlow", "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.4;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 16px 16px 28px; }
+
+  .board {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .side { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .side.right { justify-content: flex-end; }
+  .name { font-weight: 600; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pts {
+    font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+    font-weight: 600;
+    font-size: clamp(44px, 10vw, 76px);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--ball);
+    visibility: hidden;
+    flex: none;
+  }
+  .serving .dot { visibility: visible; }
+  .rule { color: var(--muted); font-size: 14px; text-align: center; }
+
+  .stage {
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: #123F3A;
+  }
+  canvas { display: block; width: 100%; height: auto; touch-action: none; cursor: none; }
+
+  .bar { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 14px; align-items: center; }
+  .group { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+  .group button + button { border-left: 1px solid var(--line); }
+  button {
+    font: 600 15px "Barlow", "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    padding: 9px 14px;
+    min-height: 40px;
+    cursor: pointer;
+  }
+  button:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  button:focus-visible { outline: 3px solid var(--ball); outline-offset: -3px; }
+  .help { margin: 12px 0 0; color: var(--muted); font-size: 15px; max-width: 70ch; }
+</style>
+</head>
+<body>
+<main>
+  <section class="board">
+    <div class="side" id="side0">
+      <span class="dot"></span>
+      <span class="name" id="n0">You</span>
+      <span class="pts" id="p0">0</span>
+    </div>
+    <div class="rule">First to 11, win by 2</div>
+    <div class="side right" id="side1">
+      <span class="pts" id="p1">0</span>
+      <span class="name" id="n1">CPU</span>
+      <span class="dot"></span>
+    </div>
+  </section>
+
+  <div class="stage">
+    <canvas id="c" role="img" aria-label="Table tennis game"></canvas>
+  </div>
+
+  <div class="bar">
+    <div class="group" role="group" aria-label="Players">
+      <button data-mode="1">1 player</button>
+      <button data-mode="2">2 players</button>
+    </div>
+    <div class="group" id="levels" role="group" aria-label="Difficulty">
+      <button data-level="easy">Easy</button>
+      <button data-level="medium">Medium</button>
+      <button data-level="hard">Hard</button>
+    </div>
+    <div class="group">
+      <button id="pause">Pause</button>
+      <button id="restart">Restart</button>
+      <button id="snd">Sound on</button>
+    </div>
+  </div>
+  <p class="help" id="help"></p>
+</main>
+
+<script>
+(() => {
+  const W = 960, H = 540;
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const T = { x: 24, y: 24, w: W - 48, h: H - 48 };
+  const PADW = 12, PADH = 92, PADX = 38, BALL_R = 8;
+  const WIN = 11, SERVE_SPEED = 480, MAX_SPEED = 1050, KEY_SPEED = 640, PTR_SPEED = 1600;
+  const LEVELS = {
+    easy:   { speed: 300, err: 62, react: 0.55 },
+    medium: { speed: 440, err: 30, react: 0.80 },
+    hard:   { speed: 600, err: 12, react: 1.00 }
+  };
+
+  const $ = id => document.getElementById(id);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const padX = k => k === 0 ? T.x + PADX : T.x + T.w - PADX;
+
+  const st = {
+    mode: 1, level: 'medium', sound: true, paused: false,
+    score: [0, 0], first: 0, phase: 'ready', timer: 0, last: 0, aiOff: 0,
+    ball: { x: 0, y: 0, vx: 0, vy: 0, sp: 0, trail: [] },
+    p: [
+      { y: H / 2, vy: 0, target: null, flash: 0 },
+      { y: H / 2, vy: 0, target: null, flash: 0 }
+    ]
+  };
+  const keys = new Set();
+
+  /* ---------- audio ---------- */
+  let ac = null;
+  function initAudio() {
+    try {
+      if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+    } catch (e) {}
+  }
+  function tone(f1, f2, dur, type, vol) {
+    if (!st.sound || !ac) return;
+    try {
+      const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(f1, t);
+      o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+      g.gain.setValueAtTime(vol, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t + dur);
+    } catch (e) {}
+  }
+  const sfx = {
+    hit:  () => tone(1400, 700, 0.07, 'triangle', 0.18),
+    wall: () => tone(620, 420, 0.05, 'sine', 0.10),
+    lose: () => tone(300, 170, 0.28, 'sine', 0.16),
+    win:  () => { tone(520, 520, 0.12, 'triangle', 0.16); setTimeout(() => tone(780, 780, 0.2, 'triangle', 0.16), 130); }
+  };
+
+  /* ---------- game flow ---------- */
+  function whoServes() {
+    const total = st.score[0] + st.score[1];
+    const idx = total < 20 ? Math.floor(total / 2) % 2 : total % 2;
+    return (st.first + idx) % 2;
+  }
+  const nameOf = k => st.mode === 1 ? (k === 0 ? 'You' : 'CPU') : (k === 0 ? 'Player 1' : 'Player 2');
+  const canServe = () => !(st.mode === 1 && whoServes() === 1);
+
+  function resetServe() {
+    st.phase = 'ready'; st.timer = 0;
+    st.ball.vx = st.ball.vy = 0; st.ball.trail.length = 0;
+    ui();
+  }
+  function serve() {
+    const s = whoServes(), b = st.ball, dir = s === 0 ? 1 : -1;
+    const a = (Math.random() - 0.5) * 0.7;
+    b.sp = SERVE_SPEED;
+    b.vx = dir * b.sp * Math.cos(a);
+    b.vy = b.sp * Math.sin(a);
+    st.aiOff = (Math.random() * 2 - 1) * LEVELS[st.level].err;
+    st.phase = 'play';
+    ui();
+  }
+  function newGame(alternate) {
+    st.score = [0, 0];
+    st.first = alternate ? 1 - st.first : 0;
+    resetServe();
+  }
+  function point(w) {
+    st.score[w]++; st.last = w;
+    const s = st.score;
+    if (s[w] >= WIN && s[w] - s[1 - w] >= 2) {
+      st.phase = 'over';
+      (st.mode === 1 && w === 1) ? sfx.lose() : sfx.win();
+    } else {
+      st.phase = 'point'; st.timer = 0;
+      (st.mode === 1 && w === 1) ? sfx.lose() : sfx.wall();
+    }
+    ui();
+  }
+  function togglePause() {
+    if (st.phase === 'over') return;
+    st.paused = !st.paused;
+    ui();
+  }
+
+  /* ---------- physics ---------- */
+  function paddleHit(k) {
+    const b = st.ball, p = st.p[k], px = padX(k);
+    const towards = k === 0 ? b.vx < 0 : b.vx > 0;
+    if (!towards) return;
+    const reachY = PADH / 2 + BALL_R * 0.6;
+    if (Math.abs(b.x - px) > PADW / 2 + BALL_R || Math.abs(b.y - p.y) > reachY) return;
+    const rel = clamp((b.y - p.y) / reachY, -1, 1);
+    const ang = clamp(rel * 0.85 + clamp(p.vy / 1600, -0.3, 0.3), -1.05, 1.05);
+    b.sp = Math.min(b.sp * 1.045, MAX_SPEED);
+    const dir = k === 0 ? 1 : -1;
+    b.vx = dir * b.sp * Math.cos(ang);
+    b.vy = b.sp * Math.sin(ang);
+    b.x = px + dir * (PADW / 2 + BALL_R + 0.5);
+    p.flash = 1;
+    sfx.hit();
+    if (k === 0) st.aiOff = (Math.random() * 2 - 1) * LEVELS[st.level].err;
+  }
+
+  function stepBall(dt) {
+    const b = st.ball;
+    const n = Math.max(1, Math.ceil(Math.hypot(b.vx, b.vy) * dt / 5));
+    const h = dt / n;
+    for (let i = 0; i < n; i++) {
+      b.x += b.vx * h; b.y += b.vy * h;
+      if (b.y < T.y + BALL_R) { b.y = T.y + BALL_R; b.vy = Math.abs(b.vy); sfx.wall(); }
+      else if (b.y > T.y + T.h - BALL_R) { b.y = T.y + T.h - BALL_R; b.vy = -Math.abs(b.vy); sfx.wall(); }
+      paddleHit(0); paddleHit(1);
+      if (b.x < T.x - BALL_R * 2) { point(1); return; }
+      if (b.x > T.x + T.w + BALL_R * 2) { point(0); return; }
+    }
+    b.trail.push({ x: b.x, y: b.y });
+    if (b.trail.length > 10) b.trail.shift();
+  }
+
+  function ai(p, dt) {
+    const lv = LEVELS[st.level], b = st.ball;
+    let tgt = T.y + T.h / 2, sp = lv.speed * 0.45;
+    if (st.phase === 'play' && b.vx > 0 && b.x > T.x + T.w * (1 - lv.react)) {
+      tgt = b.y + st.aiOff; sp = lv.speed;
+    }
+    const d = tgt - p.y;
+    p.y += Math.sign(d) * Math.min(Math.abs(d), sp * dt);
+  }
+
+  function update(dt) {
+    if (st.paused) return;
+    for (let k = 0; k < 2; k++) {
+      const p = st.p[k], oy = p.y;
+      if (k === 1 && st.mode === 1) ai(p, dt);
+      else {
+        let d = 0;
+        const down = keys.has('arrowdown') ? 1 : 0, up = keys.has('arrowup') ? 1 : 0;
+        if (k === 0) {
+          d = (keys.has('s') ? 1 : 0) - (keys.has('w') ? 1 : 0);
+          if (st.mode === 1) d += down - up;
+        } else d = down - up;
+        d = clamp(d, -1, 1);
+        if (d !== 0) { p.y += d * KEY_SPEED * dt; p.target = null; }
+        else if (p.target != null) {
+          const diff = p.target - p.y;
+          p.y += Math.sign(diff) * Math.min(Math.abs(diff), PTR_SPEED * dt);
+        }
+      }
+      p.y = clamp(p.y, T.y + PADH / 2, T.y + T.h - PADH / 2);
+      p.vy = (p.y - oy) / dt;
+      p.flash = Math.max(0, p.flash - dt * 4);
+    }
+
+    const b = st.ball;
+    if (st.phase === 'ready') {
+      const s = whoServes();
+      b.x = padX(s) + (s === 0 ? 1 : -1) * (PADW / 2 + BALL_R + 3);
+      b.y = st.p[s].y;
+      if (!canServe()) { st.timer += dt; if (st.timer > 0.9) serve(); }
+    } else if (st.phase === 'play') {
+      stepBall(dt);
+    } else if (st.phase === 'point') {
+      st.timer += dt;
+      if (st.timer > 1.1) resetServe();
+    }
+  }
+
+  /* ---------- drawing ---------- */
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawTable() {
+    ctx.fillStyle = '#123F3A'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(0,0,0,.28)'; rr(T.x + 6, T.y + 9, T.w, T.h, 6); ctx.fill();
+    ctx.fillStyle = '#1B4F8F'; rr(T.x, T.y, T.w, T.h, 6); ctx.fill();
+    const g = ctx.createLinearGradient(T.x, T.y, T.x + T.w, T.y + T.h);
+    g.addColorStop(0, 'rgba(255,255,255,.09)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; rr(T.x, T.y, T.w, T.h, 6); ctx.fill();
+    ctx.strokeStyle = '#F4F7FA'; ctx.lineWidth = 4;
+    rr(T.x + 2, T.y + 2, T.w - 4, T.h - 4, 5); ctx.stroke();
+    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(244,247,250,.65)';
+    ctx.beginPath(); ctx.moveTo(T.x + 4, T.y + T.h / 2); ctx.lineTo(T.x + T.w - 4, T.y + T.h / 2); ctx.stroke();
+
+    const nx = T.x + T.w / 2;
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(nx + 2, T.y - 10, 8, T.h + 20);
+    ctx.setLineDash([2, 3]); ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(244,247,250,.5)';
+    ctx.beginPath(); ctx.moveTo(nx, T.y - 8); ctx.lineTo(nx, T.y + T.h + 8); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineWidth = 2.5; ctx.strokeStyle = '#F4F7FA';
+    ctx.beginPath(); ctx.moveTo(nx - 2, T.y - 8); ctx.lineTo(nx - 2, T.y + T.h + 8); ctx.stroke();
+    ctx.fillStyle = '#C7CDD3';
+    rr(nx - 7, T.y - 14, 14, 9, 3); ctx.fill();
+    rr(nx - 7, T.y + T.h + 5, 14, 9, 3); ctx.fill();
+  }
+
+  function drawPaddle(k) {
+    const p = st.p[k], x = padX(k), out = k === 0 ? -1 : 1;
+    const hx = out < 0 ? x - PADW / 2 - 22 : x + PADW / 2;
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; rr(x - PADW / 2 + 3, p.y - PADH / 2 + 5, PADW, PADH, 6); ctx.fill();
+    ctx.fillStyle = '#C9985A'; rr(hx, p.y - 7, 22, 14, 4); ctx.fill();
+    ctx.fillStyle = k === 0 ? '#D33A3A' : '#26272E';
+    rr(x - PADW / 2, p.y - PADH / 2, PADW, PADH, 6); ctx.fill();
+    if (p.flash > 0) {
+      ctx.globalAlpha = p.flash * 0.65; ctx.fillStyle = '#fff';
+      rr(x - PADW / 2, p.y - PADH / 2, PADW, PADH, 6); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = '#C9985A'; ctx.lineWidth = 2;
+    rr(x - PADW / 2, p.y - PADH / 2, PADW, PADH, 6); ctx.stroke();
+  }
+
+  function drawBall() {
+    const b = st.ball;
+    const n = b.trail.length;
+    for (let i = 0; i < n; i++) {
+      const f = (i + 1) / n;
+      ctx.globalAlpha = f * 0.22;
+      ctx.fillStyle = '#FF8A1F';
+      ctx.beginPath(); ctx.arc(b.trail[i].x, b.trail[i].y, BALL_R * (0.4 + 0.6 * f), 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(0,0,0,.3)';
+    ctx.beginPath(); ctx.ellipse(b.x + 3, b.y + 5, BALL_R, BALL_R * 0.8, 0, 0, 7); ctx.fill();
+    const g = ctx.createRadialGradient(b.x - 2.5, b.y - 2.5, 1, b.x, b.y, BALL_R);
+    g.addColorStop(0, '#FFD8A3'); g.addColorStop(0.45, '#FF9A3A'); g.addColorStop(1, '#E36F0A');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(b.x, b.y, BALL_R, 0, 7); ctx.fill();
+  }
+
+  function banner(text, y) {
+    ctx.font = '600 24px "Barlow Condensed", "Arial Narrow", sans-serif';
+    const w = ctx.measureText(text).width + 40;
+    ctx.fillStyle = 'rgba(8,24,40,.6)'; rr(W / 2 - w / 2, y - 21, w, 42, 21); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, W / 2, y + 1);
+  }
+
+  function draw() {
+    drawTable();
+    drawPaddle(0); drawPaddle(1);
+    drawBall();
+    const y = T.y + T.h - 44;
+    if (st.paused) {
+      ctx.fillStyle = 'rgba(6,18,30,.5)'; ctx.fillRect(0, 0, W, H);
+      banner('Paused. Press P to resume', H / 2);
+    } else if (st.phase === 'ready') {
+      const s = whoServes();
+      if (canServe()) banner(st.mode === 1 ? 'Space or tap to serve' : nameOf(s) + ' serves. Space or tap', y);
+      else banner('CPU serves', y);
+    } else if (st.phase === 'point') {
+      banner(nameOf(st.last) + ' scores', y);
+    } else if (st.phase === 'over') {
+      const w = st.last, s = st.score;
+      banner(nameOf(w) + ' wins ' + s[w] + '-' + s[1 - w] + '. Space or tap to play again', y);
+    }
+  }
+
+  /* ---------- UI ---------- */
+  function ui() {
+    $('p0').textContent = st.score[0];
+    $('p1').textContent = st.score[1];
+    $('n0').textContent = nameOf(0);
+    $('n1').textContent = nameOf(1);
+    const s = whoServes(), live = st.phase !== 'over';
+    $('side0').classList.toggle('serving', live && s === 0);
+    $('side1').classList.toggle('serving', live && s === 1);
+    document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.mode === st.mode)));
+    document.querySelectorAll('[data-level]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.level === st.level)));
+    $('levels').style.display = st.mode === 1 ? 'flex' : 'none';
+    $('pause').textContent = st.paused ? 'Resume' : 'Pause';
+    $('snd').textContent = st.sound ? 'Sound on' : 'Sound off';
+    $('help').textContent = st.mode === 1
+      ? 'Move with W / S, the arrow keys, mouse or touch. Space or tap serves. Hitting the ball off the edge of the paddle changes its angle, and every hit makes it faster.'
+      : 'Player 1: W / S. Player 2: \u2191 / \u2193. On touch, drag on each half of the table. Space or tap serves.';
+  }
+
+  document.querySelectorAll('button').forEach(b => b.addEventListener('click', e => { if (e.detail) b.blur(); }));
+  document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { st.mode = +b.dataset.mode; st.paused = false; newGame(false); }));
+  document.querySelectorAll('[data-level]').forEach(b => b.addEventListener('click', () => { st.level = b.dataset.level; ui(); }));
+  $('pause').addEventListener('click', togglePause);
+  $('restart').addEventListener('click', () => { st.paused = false; newGame(false); });
+  $('snd').addEventListener('click', () => { st.sound = !st.sound; initAudio(); ui(); });
+
+  /* ---------- input ---------- */
+  addEventListener('keydown', e => {
+    const k = e.key.toLowerCase();
+    if (k === ' ' && e.target.closest && e.target.closest('button')) return;
+    if (['arrowup', 'arrowdown', ' '].includes(k)) e.preventDefault();
+    initAudio();
+    if (k === ' ' || k === 'enter') {
+      if (e.target.closest && e.target.closest('button')) return;
+      if (st.paused) return;
+      if (st.phase === 'ready' && canServe()) serve();
+      else if (st.phase === 'over') newGame(true);
+    } else if (k === 'p') togglePause();
+    else keys.add(k);
+  });
+  addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+  addEventListener('blur', () => keys.clear());
+  document.addEventListener('visibilitychange', () => { if (document.hidden && !st.paused) { st.paused = true; ui(); } });
+
+  const ptrSide = new Map();
+  const toGame = e => {
+    const r = cv.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+  };
+  cv.addEventListener('pointerdown', e => {
+    initAudio();
+    try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+    const g = toGame(e);
+    const side = st.mode === 2 && g.x > W / 2 ? 1 : 0;
+    ptrSide.set(e.pointerId, side);
+    st.p[side].target = g.y;
+    if (st.paused) return;
+    if (st.phase === 'ready' && canServe()) serve();
+    else if (st.phase === 'over') newGame(true);
+  });
+  cv.addEventListener('pointermove', e => {
+    const g = toGame(e);
+    if (ptrSide.has(e.pointerId)) st.p[ptrSide.get(e.pointerId)].target = g.y;
+    else if (e.pointerType === 'mouse' && st.mode === 1) st.p[0].target = g.y;
+  });
+  const endPtr = e => ptrSide.delete(e.pointerId);
+  cv.addEventListener('pointerup', endPtr);
+  cv.addEventListener('pointercancel', endPtr);
+
+  /* ---------- loop ---------- */
+  let prev = performance.now();
+  function frame(now) {
+    const dt = Math.min((now - prev) / 1000, 1 / 30);
+    prev = now;
+    if (dt > 0) update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  ui(); resetServe();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
