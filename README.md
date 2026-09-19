@@ -11,7 +11,10 @@ A responsive, interactive 2D Table Tennis (Ping Pong) game built for browsers. P
 
 🔗 **Play Online:** [table-tennis-game-psi.vercel.app](https://table-tennis-game-psi.vercel.app/)
 
----
+<p align="center">
+  <img src="Screenshot%202026-09-19%20235341.png" alt="Table Tennis Menu Screen" width="48%" />
+  <img src="Screenshot%202026-09-19%20235405.png" alt="Table Tennis Gameplay Screen" width="48%" />
+</p>
 
 ## ✨ Features
 
